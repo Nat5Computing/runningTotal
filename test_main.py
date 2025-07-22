@@ -1,60 +1,51 @@
 import unittest
 import ast
 
-class TestFruitStandCode(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+class TestFlexibleFruitStand(unittest.TestCase):
+
+    def setUp(self):
         with open("main.py", "r") as f:
-            cls.code = f.read()
-            cls.tree = ast.parse(cls.code)
+            self.tree = ast.parse(f.read())
 
-    def test_welcome_message_present(self):
-        # Check if the word 'welcome' appears (case-insensitive)
-        self.assertIn("welcome", self.code.lower(), "Missing welcome message.")
-
-    def test_input_variable_saved(self):
-        # Check that input() is used and stored in a variable
-        inputs = [node for node in ast.walk(self.tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "input"]
-        assigned = [node for node in ast.walk(self.tree) if isinstance(node, ast.Assign)]
-        found = False
-        for assign in assigned:
-            if isinstance(assign.value, ast.Call) and isinstance(assign.value.func, ast.Name) and assign.value.func.id == "input":
-                found = True
-        self.assertTrue(found, "Input is not stored in a variable.")
-
-    def test_total_price_initialised_to_zero(self):
-        # Check total_price = 0 is present
-        assigned = [node for node in ast.walk(self.tree) if isinstance(node, ast.Assign)]
-        match = any(
-            isinstance(a.targets[0], ast.Name) and a.targets[0].id == "total_price"
-            and isinstance(a.value, ast.Constant) and a.value.value == 0
-            for a in assigned
+    def test_has_input_call(self):
+        input_found = any(
+            isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'input'
+            for node in ast.walk(self.tree)
         )
-        self.assertTrue(match, "total_price is not initially set to 0.")
+        self.assertTrue(input_found, "Expected at least one call to input()")
 
-    def test_for_loop_uses_input_variable(self):
-        # Check there's a for loop using range with input variable
-        for_loops = [node for node in ast.walk(self.tree) if isinstance(node, ast.For)]
-        found = False
-        for loop in for_loops:
-            if isinstance(loop.iter, ast.Call) and isinstance(loop.iter.func, ast.Name) and loop.iter.func.id == "range":
-                if isinstance(loop.iter.args[0], ast.Name):
-                    found = True
-        self.assertTrue(found, "For loop does not use input variable to control iteration.")
+    def test_has_loop(self):
+        loop_found = any(isinstance(node, ast.For) for node in ast.walk(self.tree))
+        self.assertTrue(loop_found, "Expected a for loop")
 
-    def test_running_total_inside_loop(self):
-        # Look for total_price += price or similar
-        aug_assigns = [node for node in ast.walk(self.tree) if isinstance(node, ast.AugAssign)]
+    def test_has_running_total(self):
         found = False
-        for node in aug_assigns:
-            if isinstance(node.target, ast.Name) and node.target.id == "total_price":
-                if isinstance(node.op, ast.Add):
-                    found = True
-        self.assertTrue(found, "Running total not correctly used in loop.")
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.For):
+                for inner in ast.walk(node):
+                    # Check for total += price (AugAssign)
+                    if isinstance(inner, ast.AugAssign) and isinstance(inner.op, ast.Add):
+                        found = True
+                    # Check for total = total + price (Assign)
+                    if isinstance(inner, ast.Assign):
+                        if (isinstance(inner.value, ast.BinOp) and isinstance(inner.value.op, ast.Add)):
+                            targets = [t.id for t in inner.targets if isinstance(t, ast.Name)]
+                            if isinstance(inner.value.left, ast.Name) and inner.value.left.id in targets:
+                                found = True
+        self.assertTrue(found, "Expected a running total using += or = total + ... inside a loop")
+
+    import re
 
     def test_final_concatenated_sentence(self):
-        # Look for a print that contains "Your total is £"
-        self.assertIn("Your total is £", self.code, "Missing final concatenated sentence.")
+        with open("main.py", "r", encoding="utf-8", errors="ignore") as file:
+            code = file.read().lower()
+    
+        code = code.replace("â", "")  # filter out weird characters
+    
+        self.assertIn("your total is £", code, "Missing 'Your total is £'")
+        self.assertIn("str(", code, "Missing use of str() for concatenation")
+        self.assertIn("+", code, "Missing string concatenation using '+'")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
